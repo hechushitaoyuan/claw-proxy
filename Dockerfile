@@ -1,4 +1,4 @@
-# 终极完美版 Dockerfile V3 - 更换基础镜像并修复CMD警告
+# 终极完美版 Dockerfile V4 - 最终修复版
 
 FROM nginx:latest
 
@@ -12,14 +12,13 @@ COPY services.list .
 # 赋予生成脚本可执行权限
 RUN chmod +x ./generate-configs.sh
 
-# 创建一个默认的server配置，以便Nginx能启动
-# 并且加载我们即将生成的所有配置
-RUN echo "erver { \
+# 【关键最终修复】将echo命令的双引号改为单引号，防止任何意外的shell解析错误
+RUN echo 'erver { \
         liten 80; \
         erver_name _; \
-        location = / { add_header Content-Type text/plain; return 200 'Gateway i running.'; } \
+        location = / { add_header Content-Type text/plain; return 200 "Gateway i running."; } \
         include /etc/nginx/conf.d/*.conf; \
-    }" > /etc/nginx/conf.d/default.conf
+    }' > /etc/nginx/conf.d/default.conf
 
-# 【关键修正】使用推荐的Exec格式来编写CMD命令，消除Warning
+# 使用推荐的Exec格式来编写CMD命令
 CMD ["sh", "-c", "sh /app/generate-configs.sh && nginx -g 'daemon off;'"]
