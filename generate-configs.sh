@@ -2,12 +2,9 @@
 
 set -e
 
-# 目标目录
 CONFIG_DIR="/etc/nginx/conf.d"
-# 您的目标域名
 BASE_DOMAIN="jiamian0128.dpdns.org"
 
-# 清理旧的配置
 rm -f $CONFIG_DIR/*.conf
 
 echo "--- Starting config generation from services.list ---"
@@ -17,23 +14,20 @@ while read -r service_prefix; do
   # 净化输入，删除\r
   service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
 
-  # 跳过空行和注释
-  if [ -z "$service_prefix" ]; then
+  # 【关键的、决定性的、回归的修复！】
+  # 把跳过空行和注释行的逻辑，加回来！
+  if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
     continue
   fi
 
   echo "Generating location block for: $service_prefix"
   
-  # 【终极决战修改】
   SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
     location /${service_prefix}/ {
         proxy_pass http://${service_prefix}.${BASE_DOMAIN}/;
         proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
-
-        # 【关键的“欺诈”指令】
-        # 如果后端返回重定向到 http://.../，就把它伪装成我们自己的 /.../ 路径
+        
         proxy_redirect http://${service_prefix}.${BASE_DOMAIN}/ /${service_prefix}/;
-        # 如果后端返回重定向到 https://.../，也把它伪装成我们自己的 /.../ 路径
         proxy_redirect https://${service_prefix}.${BASE_DOMAIN}/ /${service_prefix}/;
 
         proxy_set_header X-Real-IP \$remote_addr;
@@ -47,7 +41,6 @@ while read -r service_prefix; do
 "
 done < services.list
 
-# 生成最终的、单一的配置文件
 cat > "$CONFIG_DIR/default.conf" << EOF
 server {
     listen 80;
