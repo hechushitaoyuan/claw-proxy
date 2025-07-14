@@ -2,27 +2,26 @@
 
 set -e
 
-# 目标目录
 CONFIG_DIR="/etc/nginx/conf.d"
-# 您的目标域名
 BASE_DOMAIN="jiamian0128.dpdns.org"
 
-# 清理旧的配置，确保一个干净的开始
 rm -f $CONFIG_DIR/*.conf
 
 echo "--- Starting config generation from services.list ---"
 
-# 读取服务列表
 SERVICE_LOCATIONS=""
 while read -r service_prefix; do
-  # 跳过空行和注释
+  # 【关键的、最终的、决定性的修复】
+  # 强制删除所有可能存在的、来自Windows的换行符(\r)，彻底净化输入！
+  service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
+
+  # 跳过净化后为空的行和注释行
   if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
     continue
   fi
 
   echo "Generating location block for: $service_prefix"
   
-  # 【关键重构】不再生成独立文件，而是将所有location块拼接成一个变量
   SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
     location /${service_prefix}/ {
         proxy_pass https://${service_prefix}.${BASE_DOMAIN}/;
@@ -38,7 +37,6 @@ while read -r service_prefix; do
 "
 done < services.list
 
-# 【最终生成】创建一个单一的、包含所有location的、语法绝对正确的配置文件
 cat > "$CONFIG_DIR/default.conf" << EOF
 server {
     listen 80;
@@ -49,11 +47,8 @@ server {
         return 200 "Gateway is running.";
     }
 
-    # 将我们拼接好的所有location块，安全地插入到这里
     ${SERVICE_LOCATIONS}
 }
 EOF
 
 echo "--- Config generation finished successfully! ---"
-echo "Generated final config file:"
-cat "$CONFIG_DIR/default.conf"
