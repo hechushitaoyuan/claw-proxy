@@ -11,11 +11,8 @@ echo "--- Starting config generation from services.list ---"
 
 SERVICE_LOCATIONS=""
 while read -r service_prefix; do
-  # 【关键的、最终的、决定性的修复】
-  # 强制删除所有可能存在的、来自Windows的换行符(\r)，彻底净化输入！
   service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
 
-  # 跳过净化后为空的行和注释行
   if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
     continue
   fi
@@ -24,7 +21,8 @@ while read -r service_prefix; do
   
   SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
     location /${service_prefix}/ {
-        proxy_pass https://${service_prefix}.${BASE_DOMAIN}/;
+        # 【最终的关键修复】使用HTTP协议连接我们的后端服务
+        proxy_pass http://${service_prefix}.${BASE_DOMAIN}/;
         proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
