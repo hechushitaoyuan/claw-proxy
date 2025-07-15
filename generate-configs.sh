@@ -22,19 +22,30 @@ while read -r service_prefix; do
   echo "Generating location block for: $service_prefix"
   
   SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
-    # 【最终的、最安全的方案】
     location /${service_prefix}/ {
-        # 【关键】不再使用危险的rewrite。
-        # proxy_pass后面的斜杠，会自动处理路径！
-        # 例如，/gb/auth 的请求，会被发到后端的 /auth
+        # 【核心武器1：路径处理】
+        # 用最安全的方式，把请求发给后端
         proxy_pass http://${service_prefix}.${BASE_DOMAIN}/;
         
-        # --- 之前的所有配置都保持完美 ---
-        proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
-        
-        # 通用的重定向规则，处理后端返回的相对路径
+        # 【核心武器2：重定向处理】
+        # 这个规则，现在并且永远都是正确的
         proxy_redirect / /${service_prefix}/;
+        
+        # 【核心武器3：内容替换引擎 - 武装到牙齿的最终版】
+        # 1. 禁用后端压缩，这样我们才能读取并修改内容
+        proxy_set_header Accept-Encoding \"\";
+        # 2. 告诉Nginx，不要只替换一次，要替换所有匹配项
+        sub_filter_once off;
+        # 3. 全面替换所有可能的绝对路径引用
+        sub_filter 'href=\"/'  'href=\"/${service_prefix}/';
+        sub_filter 'src=\"/'   'src=\"/${service_prefix}/';
+        sub_filter 'action=\"/' 'action=\"/${service_prefix}/';
+        sub_filter 'url(/' 'url(/${service_prefix}/'; # 修复CSS中的url(/...)
+        sub_filter '\"/api/' '\"/${service_prefix}/api/'; # 修复JS中的"/api/..."
+        sub_filter '\'/api/' '\'/${service_prefix}/api/'; # 修复JS中的'/api/...'
 
+        # --- 其他所有头部设置，都保持完美 ---
+        proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
@@ -53,7 +64,7 @@ server {
 
     location = / {
         add_header Content-Type text/plain;
-        return 200 "jiamian personal domain is running.";
+        return 200 "tjad6894 is running.";
     }
 
     ${SERVICE_LOCATIONS}
