@@ -11,32 +11,26 @@ echo "--- Starting config generation from services.list ---"
 
 SERVICE_LOCATIONS=""
 while read -r service_prefix; do
+  # 净化输入，删除\r
   service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
 
-  if [ -z "$service_prefix" ]; then
+  # 【关键的、决定性的、再也不会被我忘记的、回归的修复！】
+  # 把那个该死的、跳过空行和注释行的逻辑，加回来！
+  if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
     continue
   fi
 
   echo "Generating location block for: $service_prefix"
   
   SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
-    # 【终极决战·路径重写】
-    # 匹配所有以 /gb/ 开头的请求
+    # 使用路径重写来解决所有子路径问题
     location /${service_prefix}/ {
-        # 【关键】告诉Nginx，在将请求发给后端前，
-        # 把URL中的 /gb/ 部分砍掉，只保留后面的部分。
-        # 例如：/gb/auth 会被重写为 /auth
         rewrite ^/${service_prefix}/(.*)$ /\$1 break;
         
-        # --- 之前的所有配置都保持完美 ---
         proxy_pass http://${service_prefix}.${BASE_DOMAIN};
         proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
         
-        # 【关键】我们不再需要sub_filter，所以把Accept-Encoding加回来，恢复压缩
-        # proxy_set_header Accept-Encoding \"\"; 
-        
-        # 【关键】因为路径已经被重写，后端的任何相对路径重定向都会是正确的！
-        # 我们只需要一个更通用的proxy_redirect
+        # 通用的重定向规则，处理后端返回的相对路径
         proxy_redirect / /${service_prefix}/;
 
         proxy_set_header X-Real-IP \$remote_addr;
@@ -57,7 +51,7 @@ server {
 
     location = / {
         add_header Content-Type text/plain;
-        return 200 "jiamian personal domain is running~~";
+        return 200 "jiamian personal domain is running.";
     }
 
     ${SERVICE_LOCATIONS}
