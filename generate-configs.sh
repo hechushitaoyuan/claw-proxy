@@ -7,11 +7,9 @@ BASE_DOMAIN="jiamian0128.dpdns.org"
 
 rm -f $CONFIG_DIR/*.conf
 
-echo "--- Starting config generation from services.list ---"
+echo "--- Starting config generation for the Perfect Mirror ---"
 
-# 【最终决战·DNS修正】
-UPSTREAM_BLOCKS=""
-LOCATION_BLOCKS=""
+SERVICE_LOCATIONS=""
 while read -r service_prefix; do
   service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
 
@@ -19,25 +17,28 @@ while read -r service_prefix; do
     continue
   fi
 
-  echo "Generating blocks for: $service_prefix"
+  echo "Generating mirror route for: $service_prefix"
   
-  # 创建上游服务器定义
-  UPSTREAM_BLOCKS="${UPSTREAM_BLOCKS}
-  upstream ${service_prefix}_upstream {
-    server ${service_prefix}.${BASE_DOMAIN}:80; # 我们先假设是80端口
-  }
-  "
-  
-  # 创建路径分发规则
-  LOCATION_BLOCKS="${LOCATION_BLOCKS}
+  SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
+    # 为 /${service_prefix}/ 创建一个镜像通道
     location /${service_prefix}/ {
-        proxy_pass http://${service_prefix}_upstream/;
+        # 黄金法则一：proxy_pass 必须带斜杠
+        # 这会把请求路径正确地映射到后端，例如 /gb/auth -> /auth
+        proxy_pass http://${service_prefix}.${BASE_DOMAIN}/;
         
-        proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
+        # 黄金法则二：proxy_redirect 必须把根路径重写回子路径
+        # 这会把后端的相对路径重定向（如 /dashboard）修正为 /gb/dashboard
         proxy_redirect / /${service_prefix}/;
 
-        # --- 其他我们熟知的所有头部设置 ---
-        # ... (保留所有proxy_set_header) ...
+        # --- 所有我们需要的标准头部设置 ---
+        proxy_set_header Host ${service_prefix}.${BASE_DOMAIN};
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade \$http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_buffering off;
     }
   "
 done < services.list
@@ -48,28 +49,21 @@ server {
     listen 80;
     server_name _;
 
-    # 【关键】指定一个公共的DNS服务器，比如Cloudflare的1.1.1.1
-    # 这将绕过爪子云内部可能存在问题的DNS
+    # 黄金法则三：必须指定一个可靠的公共DNS，绕开内部DNS问题
     resolver 1.1.1.1;
 
+    # 让根目录直接指向我们自定义的欢迎页
     root /usr/share/nginx/html;
     index index.html;
 
+    # 根路径的访问规则
     location = / {
         try_files \$uri \$uri/ =404;
     }
     
-    # 加载我们所有的路径分发规则
-    ${LOCATION_BLOCKS}
+    # 加载我们所有的镜像通道
+    ${SERVICE_LOCATIONS}
 }
-
-# 把上游服务器定义，放在http块的顶层
-# 这里我们假设它们在同一个http块里，这需要一点技巧
-# 我们把它们写到另一个文件里，让nginx自动加载
-echo "http { \\
-    ${UPSTREAM_BLOCKS} \\
-    include /etc/nginx/conf.d/*.conf; \\
-}" > /etc/nginx/nginx.conf
 EOF
 
 echo "--- Config generation finished successfully! ---"
