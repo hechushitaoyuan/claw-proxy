@@ -1,5 +1,5 @@
 # services.list
-# 格式: service_prefix,target_url
-gb,http://gb.jiamian0128.dpdns.org
-npm,http://npm.jiamian0128.dpdns.org
-gp,https://gp.jiamian0128.dpdns.org
+# 在这里添加您所有的服务前缀，一行一个
+gb
+npm
+gp
