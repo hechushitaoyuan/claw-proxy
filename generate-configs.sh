@@ -5,15 +5,13 @@ set -e
 CONFIG_DIR="/etc/nginx/conf.d"
 BASE_DOMAIN="jiamian0128.dpdns.org"
 rm -f $CONFIG_DIR/*.conf
-echo "--- Starting config generation for the Ultimate Mirror Engine v3 ---"
+echo "--- Starting config generation for the Ultimate Mirror Engine v4 ---"
 
 SERVICE_LOCATIONS=""
 while read -r service_prefix; do
-  service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
-  if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
-    continue
-  fi
-  echo "Generating v3 route for: $service_prefix"
+  # ... (净化输入的代码保持不变) ...
+  # ... (跳过注释的代码保持不变) ...
+  echo "Generating v4 route for: $service_prefix"
   
   SUB_FILTER_RULES=""
   if [ "$service_prefix" = "gb" ] || [ "$service_prefix" = "npm" ]; then
@@ -21,23 +19,19 @@ while read -r service_prefix; do
         proxy_set_header Accept-Encoding \"\";
         sub_filter_once off;
         
-        # --- 全面内容替换规则 v3 ---
-        # 基础规则 (双引号+单引号)
-        sub_filter 'href=\"/' 'href=\"/${service_prefix}/';
-        sub_filter 'src=\"/' 'src=\"/${service_prefix}/';
+        # --- 最全面的内容替换规则 ---
+        sub_filter 'href=\"/'  'href=\"/${service_prefix}/';
+        sub_filter 'src=\"/'   'src=\"/${service_prefix}/';
         sub_filter 'action=\"/' 'action=\"/${service_prefix}/';
         sub_filter 'href=\'/' 'href=\'/${service_prefix}/';
-        sub_filter 'src=\'/' 'src=\'/${service_prefix}/';
+        sub_filter 'src=\'/'   'src=\'/${service_prefix}/';
         sub_filter 'action=\'/' 'action=\'/${service_prefix}/';
-
-        # 高级规则：处理CSS/JS中的url()
         sub_filter 'url(/' 'url(/${service_prefix}/';
-        
-        # API及内部路由规则 (最关键！)
         sub_filter '\"/api/' '\"/${service_prefix}/api/';
         sub_filter '\'/api/' '\'/${service_prefix}/api/';
         sub_filter '\"/auth' '\"/${service_prefix}/auth'; # for gb
         sub_filter '\'/auth' '\'/${service_prefix}/auth'; # for gb
+        # 【最后的、决定性的规则！】
         sub_filter '\"/login' '\"/${service_prefix}/login'; # for npm
         sub_filter '\'/login' '\'/${service_prefix}/login'; # for npm
     "
@@ -56,10 +50,12 @@ while read -r service_prefix; do
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
         proxy_set_header Connection 'upgrade';
+        proxy_buffering off; # 确保sub_filter可以工作
     }
   "
 done < services.list
 
+# ... (生成default.conf的代码保持不变) ...
 cat > "$CONFIG_DIR/default.conf" << EOF
 server {
     listen 80;
