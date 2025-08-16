@@ -1,81 +1,95 @@
 #!/bin/sh
-# generate-configs.sh - v2.1 (Subdomain Model with external services.list)
+# generate-configs.sh - v3.0 (Ultimate Path-Based Proxy)
 
 set -e
 
 CONFIG_DIR="/etc/nginx/conf.d"
-# 新的统一访问域名，这个可以根据你在Cloudflare DNS的设置进行修改
-PROXY_DOMAIN="proxy.jiamian0128.dpdns.org"
+BASE_DOMAIN="jiamian0128.dpdns.org" # 这是Cloudflare隧道的目标
 
 rm -f $CONFIG_DIR/*.conf
 
-echo "--- Starting config generation (Subdomain Model) from services.list ---"
+echo "--- Starting config generation for Ultimate Path-Based Proxy ---"
 
-# 检查 services.list 文件是否存在
-if [ ! -f "services.list" ]; then
-    echo "Error: services.list file not found!"
-    exit 1
-fi
+# --- 动态生成所有服务的 Location 块 ---
+SERVICE_LOCATIONS=""
+while read -r service_prefix; do
+  # 跳过空行和注释
+  service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
+  if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
+    continue
+  fi
 
-# 从 services.list 逐行读取配置
-# IFS=, 指定逗号为分隔符
-while IFS=, read -r service_prefix target_host || [ -n "$service_prefix" ]; do
-    # 去除可能存在的行尾回车符
-    service_prefix=$(echo -n "$service_prefix" | tr -d '\r')
-    target_host=$(echo -n "$target_host" | tr -d '\r')
-
-    # 跳过空行和注释行
-    if [ -z "$service_prefix" ] || [ "${service_prefix#\#}" != "$service_prefix" ]; then
-        continue
-    fi
-    
-    # 构造将要监听的子域名
-    server_name="${service_prefix}.${PROXY_DOMAIN}"
+  # 判断目标服务是否需要用https回源 (只有gp是)
+  target_scheme="http"
+  if [ "$service_prefix" = "gp" ]; then
+    target_scheme="https"
+  fi
   
-    # Cloudflare Pages/Worker (gp) 需要使用 HTTPS 协议回源
-    scheme="http"
-    if [ "$service_prefix" = "gp" ]; then
-        scheme="https"
-    fi
+  target_host="${service_prefix}.${BASE_DOMAIN}"
+  echo "Generating route: /${service_prefix}/ -> ${target_scheme}://${target_host}/"
 
-    echo "Generating route for: ${server_name} -> ${scheme}://${target_host}"
+  # ★★★ 这是最关键的部分：强化的内容替换规则 ★★★
+  # 覆盖了HTML/CSS的引用，以及JS中常见的API请求路径
+  SUB_FILTER_RULES="
+        # 强制禁用gzip压缩，否则sub_filter无法生效
+        proxy_set_header Accept-Encoding \"\";
+        sub_filter_once off;
 
-    cat > "$CONFIG_DIR/${service_prefix}.conf" << EOF
-server {
-    listen 80;
-    server_name ${server_name};
+        # 基础资源替换 (HTML/CSS)
+        sub_filter 'href=\"/'      'href=\"/${service_prefix}/';
+        sub_filter 'src=\"/'       'src=\"/${service_prefix}/';
+        sub_filter 'action=\"/'    'action=\"/${service_prefix}/';
+        sub_filter 'url(/'         'url(/${service_prefix}/';
 
-    # 使用Cloudflare的DNS解析器
-    resolver 1.1.1.1 valid=30s;
+        # 关键API路径替换 (JavaScript/Fetch/XHR)
+        # 同时处理了双引号和单引号的情况
+        sub_filter '\"/api/'       '\"/${service_prefix}/api/';
+        sub_filter '\\'/api/'      '\\'/${service_prefix}/api/';
+        sub_filter '\"/auth'       '\"/${service_prefix}/auth';
+        sub_filter '\\'/auth'      '\\'/${service_prefix}/auth';
+        sub_filter '\"/ws'         '\"/${service_prefix}/ws';
+        sub_filter '\\'/ws'        '\\'/${service_prefix}/ws';
+  "
 
-    location / {
-        # 纯粹的代理，无内容修改
-        proxy_pass ${scheme}://${target_host};
+  SERVICE_LOCATIONS="${SERVICE_LOCATIONS}
+    # 规则 for /${service_prefix}/
+    location /${service_prefix}/ {
+        proxy_pass ${target_scheme}://${target_host}/;
+        proxy_redirect default; # 使用更健壮的重定向处理
+        
+        ${SUB_FILTER_RULES}
 
-        # 标准代理头设置
+        # 标准代理头部
         proxy_set_header Host ${target_host};
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto https;
+        proxy_set_header X-Forwarded-Proto \$scheme;
         proxy_http_version 1.1;
         proxy_set_header Upgrade \$http_upgrade;
-        proxy_set_header Connection "upgrade";
+        proxy_set_header Connection 'upgrade'; # 支持WebSocket
         proxy_buffering off;
     }
-}
-EOF
+  "
 done < services.list
 
-# 为根域名创建一个默认的欢迎页面
+
+# --- 生成最终的 Nginx 配置文件 ---
 cat > "$CONFIG_DIR/default.conf" << EOF
 server {
     listen 80;
-    server_name ${PROXY_DOMAIN};
+    server_name _;
 
-    location / {
-        return 200 'Claw-Proxy v2.1 is active. Access your services via subdomains like gb.${PROXY_DOMAIN}';
-        add_header Content-Type text/plain;
+    # Cloudflare DNS
+    resolver 1.1.1.1;
+
+    # ★★★ 根路径配置，用于展示你的 index.html ★★★
+    location = / {
+        root /usr/share/nginx/html;
+        index index.html;
     }
+    
+    # 动态嵌入所有服务的location配置
+    ${SERVICE_LOCATIONS}
 }
 EOF
 
