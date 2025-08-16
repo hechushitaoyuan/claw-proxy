@@ -1,7 +1,7 @@
 # services.list
-# 在这里添加您所有的服务前缀，一行一个
-gb,gb.jiamian0128.dpdns.org
-npm,npm.jiamian0128.dpdns.org
-gp,gp.jiamian0128.dpdns.org
-ol,ol.jiamian0128.dpdns.org
-lc,lc.jiamian0128.dpdns.org
+# 每行一个服务前缀
+gb
+npm
+gp
+lc
+ol
